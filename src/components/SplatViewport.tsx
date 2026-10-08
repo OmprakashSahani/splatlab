@@ -4,6 +4,7 @@ import type { SplatMesh } from '@sparkjsdev/spark'
 import type { LocalGaussianAsset } from '../assets/localAsset'
 import type { CapturedCamera } from '../core/camera'
 import { applyCapturedCamera } from '../rendering/capturedCamera'
+import { fitCameraViewport } from '../rendering/cameraViewport'
 import {
   createSparkRenderSession,
   renderSparkSession,
@@ -22,6 +23,7 @@ export interface SplatViewportProps {
  * SplatViewport owns THREE.WebGLRenderer and owns and disposes each attached SplatMesh.
  * SparkRenderSession owns the scene, camera, and SparkRenderer.
  * A provided CapturedCamera updates the existing session camera without replacing it.
+ * The last applied captured camera also determines the fitted renderer viewport.
  */
 export default function SplatViewport({
   asset = null,
@@ -30,6 +32,7 @@ export default function SplatViewport({
 }: SplatViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sessionRef = useRef<SparkRenderSession | null>(null)
+  const activeCameraRef = useRef<CapturedCamera | null>(null)
   const meshRef = useRef<SplatMesh | null>(null)
 
   useEffect(() => {
@@ -50,6 +53,16 @@ export default function SplatViewport({
       const height = canvas.clientHeight
       if (width > 0 && height > 0) {
         renderer.setSize(width, height, false)
+        const activeCamera = activeCameraRef.current
+        if (activeCamera) {
+          const viewport = fitCameraViewport(
+            width,
+            height,
+            activeCamera.intrinsics.width,
+            activeCamera.intrinsics.height,
+          )
+          renderer.setViewport(viewport.x, viewport.y, viewport.width, viewport.height)
+        }
       }
     }
 
@@ -67,6 +80,7 @@ export default function SplatViewport({
       cancelAnimationFrame(animationFrameId)
       window.removeEventListener('resize', resize)
       sessionRef.current = null
+      activeCameraRef.current = null
       const mesh = meshRef.current
       if (mesh) {
         meshRef.current = null
@@ -82,6 +96,21 @@ export default function SplatViewport({
     if (!camera || !session) return
 
     applyCapturedCamera(session.camera, camera)
+    activeCameraRef.current = camera
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const width = canvas.clientWidth
+    const height = canvas.clientHeight
+    if (width > 0 && height > 0) {
+      const viewport = fitCameraViewport(
+        width,
+        height,
+        camera.intrinsics.width,
+        camera.intrinsics.height,
+      )
+      session.renderer.setViewport(viewport.x, viewport.y, viewport.width, viewport.height)
+    }
   }, [camera])
 
   useEffect(() => {

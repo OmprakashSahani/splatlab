@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import * as THREE from 'three'
 import type { SplatMesh } from '@sparkjsdev/spark'
 import type { LocalGaussianAsset } from '../assets/localAsset'
 import type { CapturedCamera } from '../core/camera'
 import { applyCapturedCamera } from '../rendering/capturedCamera'
+import { fitCameraViewport } from '../rendering/cameraViewport'
 import {
   createSparkRenderSession,
   disposeSparkRenderSession,
@@ -35,9 +36,14 @@ vi.mock('../rendering/capturedCamera', () => ({
   applyCapturedCamera: vi.fn(),
 }))
 
+vi.mock('../rendering/cameraViewport', () => ({
+  fitCameraViewport: vi.fn(),
+}))
+
 const renderer = {
   setPixelRatio: vi.fn(),
   setSize: vi.fn(),
+  setViewport: vi.fn(),
   dispose: vi.fn(),
 }
 
@@ -88,6 +94,11 @@ function deferred<T>() {
     reject = rejectPromise
   })
   return { promise, resolve, reject }
+}
+
+function setCanvasSize(canvas: HTMLCanvasElement, width: number, height: number) {
+  Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: width })
+  Object.defineProperty(canvas, 'clientHeight', { configurable: true, value: height })
 }
 
 beforeEach(() => {
@@ -295,5 +306,110 @@ describe('SplatViewport captured camera', () => {
     expect(createSparkRenderSession).toHaveBeenCalledOnce()
     expect(disposeSparkRenderSession).not.toHaveBeenCalled()
     expect(renderer.dispose).not.toHaveBeenCalled()
+  })
+})
+
+describe('SplatViewport fitted renderer viewport', () => {
+  it('fits a newly applied camera immediately without resizing the renderer', () => {
+    const camera = createCamera('camera')
+    const { rerender } = render(<SplatViewport camera={camera} />)
+    const canvas = screen.getByLabelText<HTMLCanvasElement>('Gaussian splat viewport')
+    setCanvasSize(canvas, 1600, 1200)
+    vi.mocked(fitCameraViewport).mockReturnValue({
+      x: 0, y: 150, width: 1600, height: 900,
+    })
+    vi.mocked(applyCapturedCamera).mockClear()
+    renderer.setSize.mockClear()
+    renderer.setViewport.mockClear()
+    vi.mocked(fitCameraViewport).mockClear()
+
+    const activeCamera = { ...camera, id: 'active-camera' }
+    rerender(<SplatViewport camera={activeCamera} />)
+
+    expect(applyCapturedCamera).toHaveBeenCalledExactlyOnceWith(session.camera, activeCamera)
+    expect(vi.mocked(applyCapturedCamera).mock.calls[0][1]).toBe(activeCamera)
+    expect(fitCameraViewport).toHaveBeenCalledExactlyOnceWith(1600, 1200, 1920, 1080)
+    expect(renderer.setViewport).toHaveBeenCalledExactlyOnceWith(0, 150, 1600, 900)
+    expect(renderer.setSize).not.toHaveBeenCalled()
+  })
+
+  it('resizes the renderer before fitting and applying the active camera viewport', () => {
+    const camera = createCamera('camera')
+    const { rerender } = render(<SplatViewport camera={camera} />)
+    const canvas = screen.getByLabelText<HTMLCanvasElement>('Gaussian splat viewport')
+    setCanvasSize(canvas, 1600, 1200)
+    vi.mocked(fitCameraViewport).mockReturnValue({
+      x: 0, y: 150, width: 1600, height: 900,
+    })
+    const activeCamera = { ...camera, id: 'active-camera' }
+    rerender(<SplatViewport camera={activeCamera} />)
+    expect(applyCapturedCamera).toHaveBeenLastCalledWith(session.camera, activeCamera)
+    expect(renderer.setViewport).toHaveBeenCalledExactlyOnceWith(0, 150, 1600, 900)
+    renderer.setSize.mockClear()
+    renderer.setViewport.mockClear()
+    vi.mocked(fitCameraViewport).mockClear()
+
+    setCanvasSize(canvas, 800, 1200)
+    vi.mocked(fitCameraViewport).mockReturnValue({
+      x: 0, y: 375, width: 800, height: 450,
+    })
+    window.dispatchEvent(new Event('resize'))
+
+    expect(renderer.setSize).toHaveBeenCalledExactlyOnceWith(800, 1200, false)
+    expect(fitCameraViewport).toHaveBeenCalledExactlyOnceWith(
+      800, 1200, activeCamera.intrinsics.width, activeCamera.intrinsics.height,
+    )
+    expect(renderer.setViewport).toHaveBeenCalledExactlyOnceWith(0, 375, 800, 450)
+    expect(renderer.setSize.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(fitCameraViewport).mock.invocationCallOrder[0],
+    )
+    expect(vi.mocked(fitCameraViewport).mock.invocationCallOrder[0]).toBeLessThan(
+      renderer.setViewport.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('retains the last applied camera for resize fitting after the prop becomes null', () => {
+    const cameraA = createCamera('camera-a')
+    const { rerender } = render(<SplatViewport camera={cameraA} />)
+    expect(applyCapturedCamera).toHaveBeenCalledExactlyOnceWith(session.camera, cameraA)
+
+    rerender(<SplatViewport camera={null} />)
+
+    expect(applyCapturedCamera).toHaveBeenCalledOnce()
+    expect(THREE.WebGLRenderer).toHaveBeenCalledOnce()
+    expect(createSparkRenderSession).toHaveBeenCalledOnce()
+    renderer.setSize.mockClear()
+    renderer.setViewport.mockClear()
+    vi.mocked(fitCameraViewport).mockClear()
+
+    const canvas = screen.getByLabelText<HTMLCanvasElement>('Gaussian splat viewport')
+    setCanvasSize(canvas, 1000, 1000)
+    vi.mocked(fitCameraViewport).mockReturnValue({
+      x: 0, y: 219, width: 1000, height: 563,
+    })
+    window.dispatchEvent(new Event('resize'))
+
+    expect(renderer.setSize).toHaveBeenCalledExactlyOnceWith(1000, 1000, false)
+    expect(fitCameraViewport).toHaveBeenCalledExactlyOnceWith(
+      1000, 1000, cameraA.intrinsics.width, cameraA.intrinsics.height,
+    )
+    expect(renderer.setViewport).toHaveBeenCalledExactlyOnceWith(0, 219, 1000, 563)
+    expect(applyCapturedCamera).toHaveBeenCalledOnce()
+    expect(createSparkRenderSession).toHaveBeenCalledOnce()
+  })
+
+  it('uses normal full-canvas sizing on resize when no captured camera was applied', () => {
+    render(<SplatViewport />)
+    const canvas = screen.getByLabelText<HTMLCanvasElement>('Gaussian splat viewport')
+    setCanvasSize(canvas, 900, 700)
+    renderer.setSize.mockClear()
+    renderer.setViewport.mockClear()
+    vi.mocked(fitCameraViewport).mockClear()
+
+    window.dispatchEvent(new Event('resize'))
+
+    expect(renderer.setSize).toHaveBeenCalledExactlyOnceWith(900, 700, false)
+    expect(fitCameraViewport).not.toHaveBeenCalled()
+    expect(renderer.setViewport).not.toHaveBeenCalled()
   })
 })
