@@ -67,7 +67,8 @@
   line-height: 1.4;
 }
 
-.asset-input {
+.asset-input,
+.camera-input {
   width: 220px;
   min-width: 0;
   max-width: 100%;
@@ -79,7 +80,8 @@
   font-size: 12px;
 }
 
-.asset-input::file-selector-button {
+.asset-input::file-selector-button,
+.camera-input::file-selector-button {
   margin-right: 8px;
   padding: 4px 8px;
   border: 1px solid var(--border);
@@ -90,11 +92,13 @@
   cursor: pointer;
 }
 
-.asset-input::file-selector-button:hover {
+.asset-input::file-selector-button:hover,
+.camera-input::file-selector-button:hover {
   border-color: var(--text-muted);
 }
 
-.asset-summary {
+.asset-summary,
+.camera-summary {
   min-width: 0;
   max-width: 28ch;
   margin: 0;
@@ -107,7 +111,8 @@
   text-overflow: ellipsis;
 }
 
-.asset-error {
+.asset-error,
+.camera-error {
   min-width: 0;
   max-width: 32ch;
   margin: 0;

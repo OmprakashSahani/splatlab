@@ -1,6 +1,8 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { createLocalGaussianAsset, type LocalGaussianAsset } from './assets/localAsset'
+import { parseCapturedCameraJson } from './cameras/capturedCameraJson'
 import SplatViewport from './components/SplatViewport'
+import type { CapturedCamera } from './core/camera'
 import './App.css'
 
 function formatBytes(bytes: number): string {
@@ -12,6 +14,9 @@ function formatBytes(bytes: number): string {
 function App() {
   const [asset, setAsset] = useState<LocalGaussianAsset | null>(null)
   const [assetLoadError, setAssetLoadError] = useState<string | null>(null)
+  const [camera, setCamera] = useState<CapturedCamera | null>(null)
+  const [cameraLoadError, setCameraLoadError] = useState<string | null>(null)
+  const cameraSelectionVersionRef = useRef(0)
 
   const handleAssetLoadError = useCallback((error: unknown) => {
     setAssetLoadError(
@@ -53,10 +58,51 @@ function App() {
               {assetLoadError}
             </p>
           )}
+          <label>
+            Open camera JSON
+            <input
+              className="camera-input"
+              type="file"
+              accept=".json"
+              onChange={async (event) => {
+                const file = event.currentTarget.files?.[0]
+                if (!file) return
+
+                const selectionVersion = ++cameraSelectionVersionRef.current
+                setCameraLoadError(null)
+
+                try {
+                  const text = await file.text()
+                  const parsedCamera = parseCapturedCameraJson(text)
+                  if (selectionVersion !== cameraSelectionVersionRef.current) return
+
+                  setCamera(parsedCamera)
+                  setCameraLoadError(null)
+                } catch (error) {
+                  if (selectionVersion !== cameraSelectionVersionRef.current) return
+
+                  setCameraLoadError(
+                    error instanceof Error ? error.message : 'Failed to load camera.',
+                  )
+                }
+              }}
+            />
+          </label>
+          {camera && (
+            <p className="camera-summary">
+              {camera.name || camera.id} · {camera.intrinsics.width}×{camera.intrinsics.height}
+              {camera.name && ` · ${camera.id}`}
+            </p>
+          )}
+          {cameraLoadError && (
+            <p className="camera-error" role="alert">
+              {cameraLoadError}
+            </p>
+          )}
         </div>
       </header>
       <section className="viewport-panel">
-        <SplatViewport asset={asset} onAssetLoadError={handleAssetLoadError} />
+        <SplatViewport asset={asset} camera={camera} onAssetLoadError={handleAssetLoadError} />
       </section>
     </main>
   )
