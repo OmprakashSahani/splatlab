@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { createLocalGaussianAsset, type LocalGaussianAsset } from './assets/localAsset'
 import { parseCapturedCameraJson } from './cameras/capturedCameraJson'
 import SplatViewport from './components/SplatViewport'
+import type { AssetRole } from './core/asset'
 import type { CapturedCamera } from './core/camera'
 import './App.css'
 
@@ -12,11 +13,26 @@ function formatBytes(bytes: number): string {
 }
 
 function App() {
-  const [asset, setAsset] = useState<LocalGaussianAsset | null>(null)
+  const [referenceAsset, setReferenceAsset] = useState<LocalGaussianAsset | null>(null)
+  const [candidateAsset, setCandidateAsset] = useState<LocalGaussianAsset | null>(null)
+  const [activeRole, setActiveRole] = useState<AssetRole>('reference')
   const [assetLoadError, setAssetLoadError] = useState<string | null>(null)
   const [camera, setCamera] = useState<CapturedCamera | null>(null)
   const [cameraLoadError, setCameraLoadError] = useState<string | null>(null)
   const cameraSelectionVersionRef = useRef(0)
+
+  const activeAsset = activeRole === 'reference' ? referenceAsset : candidateAsset
+
+  function selectAsset(role: AssetRole, file: File) {
+    const asset = createLocalGaussianAsset(file, crypto.randomUUID())
+    if (role === 'reference') {
+      setReferenceAsset(asset)
+    } else {
+      setCandidateAsset(asset)
+    }
+    setActiveRole(role)
+    setAssetLoadError(null)
+  }
 
   const handleAssetLoadError = useCallback((error: unknown) => {
     setAssetLoadError(
@@ -33,7 +49,7 @@ function App() {
         </div>
         <div className="asset-controls">
           <label>
-            Open Gaussian asset
+            Open reference asset
             <input
               className="asset-input"
               type="file"
@@ -42,15 +58,56 @@ function App() {
                 const file = event.currentTarget.files?.[0]
                 if (!file) return
 
-                setAsset(createLocalGaussianAsset(file, crypto.randomUUID()))
-                setAssetLoadError(null)
+                selectAsset('reference', file)
               }}
             />
           </label>
-          {asset && (
+          <label>
+            Open candidate asset
+            <input
+              className="asset-input"
+              type="file"
+              accept=".ply,.spz"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0]
+                if (!file) return
+
+                selectAsset('candidate', file)
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            aria-pressed={activeRole === 'reference'}
+            onClick={() => {
+              setActiveRole('reference')
+              setAssetLoadError(null)
+            }}
+          >
+            Reference
+          </button>
+          <button
+            type="button"
+            aria-pressed={activeRole === 'candidate'}
+            onClick={() => {
+              setActiveRole('candidate')
+              setAssetLoadError(null)
+            }}
+          >
+            Candidate
+          </button>
+          {referenceAsset && (
             <p className="asset-summary">
-              {asset.descriptor.name} · {asset.descriptor.format.toUpperCase()} ·{' '}
-              {formatBytes(asset.descriptor.sizeBytes)}
+              Reference · {referenceAsset.descriptor.name} ·{' '}
+              {referenceAsset.descriptor.format.toUpperCase()} ·{' '}
+              {formatBytes(referenceAsset.descriptor.sizeBytes)}
+            </p>
+          )}
+          {candidateAsset && (
+            <p className="asset-summary">
+              Candidate · {candidateAsset.descriptor.name} ·{' '}
+              {candidateAsset.descriptor.format.toUpperCase()} ·{' '}
+              {formatBytes(candidateAsset.descriptor.sizeBytes)}
             </p>
           )}
           {assetLoadError && (
@@ -102,7 +159,7 @@ function App() {
         </div>
       </header>
       <section className="viewport-panel">
-        <SplatViewport asset={asset} camera={camera} onAssetLoadError={handleAssetLoadError} />
+        <SplatViewport asset={activeAsset} camera={camera} onAssetLoadError={handleAssetLoadError} />
       </section>
     </main>
   )
